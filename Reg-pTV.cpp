@@ -197,219 +197,217 @@ bool Reg_pTV::check(std::string &err)
 
 //======================================================
 bool Reg_pTV::run() {
-	{
-		DoubleProperty *tmp, *fn = NULL, *fnp1 = NULL, *grad = NULL;
-		Iterator<node> *itNodesU;
-		Iterator<edge> *itEdges;
-		node u, v;
-		edge e;
-		double num, denum, b, grad_u, grad_v, lambda_u, fn_v;
-		bool continueProcess = true;
-		std::string fn_name, fnp1_name, grad_name;
+	DoubleProperty *tmp, *fn = NULL, *fnp1 = NULL, *grad = NULL;
+	Iterator<node> *itNodesU;
+	Iterator<edge> *itEdges;
+	node u, v;
+	edge e;
+	double num, denum, b, grad_u, grad_v, lambda_u, fn_u, fn_v;
+	bool continueProcess = true;
+	std::string fn_name, fnp1_name, grad_name;
 
-		if(pluginProgress)
-			pluginProgress->setComment("Initializing");
+	if(pluginProgress)
+		pluginProgress->setComment("Initializing");
 
-		/*
-		 * Find an unused property name for fn & fnp1
-		 */
+	/*
+	 * Find an unused property name for fn & fnp1
+	 */
+	do {
+		fn_name = random_string(6);
+	} while(graph->existLocalProperty(fn_name));
+	do {
+		fnp1_name = random_string(6);
+	} while(graph->existLocalProperty(fnp1_name));
+
+	fn = graph->getLocalProperty< DoubleProperty >(fn_name);
+	fnp1 = graph->getLocalProperty< DoubleProperty >(fnp1_name);
+
+	/*
+	 * Find an unused property name for grad
+	 * Only if we are using the isotropic model
+	 */
+	if(this->is_isotropic && !this->is_anisotropic) {
 		do {
-			fn_name = random_string(6);
-		} while(graph->existLocalProperty(fn_name));
-		do {
-			fnp1_name = random_string(6);
-		} while(graph->existLocalProperty(fnp1_name));
+			grad_name = random_string(6);
+		} while(graph->existLocalProperty(grad_name));
 
-		fn = graph->getLocalProperty< DoubleProperty >(fn_name);
-		fnp1 = graph->getLocalProperty< DoubleProperty >(fnp1_name);
+		grad = graph->getLocalProperty< DoubleProperty >(grad_name);
+	}
 
-		/*
-		 * Find an unused property name for grad
-		 * Only if we are using the isotropic model
-		 */
-		if(this->is_isotropic && !this->is_anisotropic) {
-			do {
-				grad_name = random_string(6);
-			} while(graph->existLocalProperty(grad_name));
+	/*
+	 * Initializing the function to regularize
+	 */
+	fn->copy(this->f0);
 
-			grad = graph->getLocalProperty< DoubleProperty >(grad_name);
+	if(pluginProgress)
+		pluginProgress->setComment("Processing");
+
+	/*
+	 * Main loop
+	 */
+	for(unsigned int i = 0; i < iter_max; ++i) {
+		if(this->is_anisotropic && !this->is_isotropic) {
+			/*
+			 * If using the anisotropic model
+			 */
+
+			itNodesU = graph->getNodes();
+			while(itNodesU->hasNext()) {
+				u = itNodesU->next();
+
+				fn_u = fn->getNodeValue(u);
+
+				lambda_u = this->wl->getNodeValue(u);
+				num = lambda_u * this->f0->getNodeValue(u);
+				denum = lambda_u;
+
+				itEdges = graph->getInOutEdges(u);
+				while(itEdges->hasNext()) {
+					e = itEdges->next();
+					v = graph->opposite(e, u);
+
+					fn_v = fn->getNodeValue(v);
+
+					/*
+					 * fabs() is regularized to avoid 0
+					 */
+					b = pow(this->wl->getEdgeValue(e), this->p / 2) * pow(fabs(fn_u - fn_v) + this->epsilon, this->p - 2);
+					num += 2 * b * fn_v;
+					denum += 2 * b;
+				}
+				delete itEdges;
+
+				fnp1->setNodeValue(u, num / denum);
+			}
+			delete itNodesU;
+
+		} else if(this->is_isotropic && !this->is_anisotropic) {
+			/*
+			 * If using the isotropic model
+			 *
+			 * Precomputing gradient norms
+			 * Norm q of a weighted gradient of the function f at node u
+			 * [ sum_{v~u} w_{uv}^{q/2} . |f(v) - f(u)|^q ]^{1/q}
+			 * We are computing it for q = 2, and at power p-2
+			 */
+			double epsilon_squared = this->epsilon * this->epsilon,
+				   gradient_power = (this->p - 2) / 2;
+
+			itNodesU = graph->getNodes();
+			while(itNodesU->hasNext()) {
+				u = itNodesU->next();
+
+				grad_u = 0;
+
+				itEdges = graph->getInOutEdges(u);
+				while(itEdges->hasNext()) {
+					e = itEdges->next();
+					v = graph->opposite(e, u);
+					grad_u += this->wl->getEdgeValue(e) * pow(fabs(fn->getNodeValue(u) - fn->getNodeValue(v)), 2);
+				}
+				delete itEdges;
+
+				// grad_u is the gradient^2
+
+				/*
+				 * Regularized to avoid divisions by 0
+				 * Computing it at power p-2
+				 */
+				grad->setNodeValue(u, pow(grad_u + epsilon_squared, gradient_power)); 
+			}
+			delete itNodesU;
+
+			itNodesU = graph->getNodes();
+			while(itNodesU->hasNext()) {
+				u = itNodesU->next();
+
+				lambda_u = this->wl->getNodeValue(u);
+				num = lambda_u * this->f0->getNodeValue(u);
+				denum = lambda_u;
+
+				itEdges = graph->getInOutEdges(u);
+				while(itEdges->hasNext()) {
+					e = itEdges->next();
+					v = graph->opposite(e, u);
+
+					grad_u = grad->getNodeValue(u);
+					grad_v = grad->getNodeValue(v);
+
+					b = this->wl->getEdgeValue(e) * (grad_u + grad_v);
+					num += b * fn->getNodeValue(v);
+					denum += b;
+				}
+				delete itEdges;
+
+				fnp1->setNodeValue(u, num / denum);
+			}
+			delete itNodesU;
+
+		} else {
+			/*
+			 * Isotropic & anisotropic model
+			 * p = q = 2
+			 * Some computations are simpliified
+			 */
+
+			itNodesU = graph->getNodes();
+			while(itNodesU->hasNext()) {
+				u = itNodesU->next();
+
+				lambda_u = this->wl->getNodeValue(u);
+				num = lambda_u * this->f0->getNodeValue(u);
+				denum = lambda_u;
+
+				itEdges = graph->getInOutEdges(u);
+				while(itEdges->hasNext()) {
+					e = itEdges->next();
+					v = graph->opposite(e, u);
+
+					fn_v = fn->getNodeValue(v);
+
+					b = this->wl->getEdgeValue(e);
+					num += b * fn_v;
+					denum += b;
+				}
+				delete itEdges;
+
+				fnp1->setNodeValue(u, num / denum);
+			}
+			delete itNodesU;
 		}
 
-		/*
-		 * Initializing the function to regularize
-		 */
-		fn->copy(this->f0);
+		tmp = fn;
+		fn = fnp1;
+		fnp1 = tmp;
 
-		if(pluginProgress)
-			pluginProgress->setComment("Processing");
+		if(pluginProgress) {
+			if(pluginProgress->state() != TLP_CONTINUE)
+				continueProcess = false;
 
-		/*
-		 * Main loop
-		 */
-		for(unsigned int i = 0; i < iter_max; ++i) {
-			if(this->is_anisotropic && !this->is_isotropic) {
-				/*
-				 * If using the anisotropic model
-				 */
-
-				itNodesU = graph->getNodes();
-				while(itNodesU->hasNext()) {
-					u = itNodesU->next();
-
-					lambda_u = this->wl->getNodeValue(u);
-					num = lambda_u * this->f0->getNodeValue(u);
-					denum = lambda_u;
-
-					itEdges = graph->getInOutEdges(u);
-					while(itEdges->hasNext()) {
-						e = itEdges->next();
-						v = graph->opposite(e, u);
-
-						fn_v = fn->getNodeValue(v);
-
-						/*
-						 * fabs() is regularized to avoir 0
-						 */
-						b = pow(this->wl->getEdgeValue(e), this->p / 2) * pow(fabs(fn->getNodeValue(u) - fn_v) + this->epsilon, this->p - 2);
-						num += b * fn_v;
-						denum += b;
-					}
-					delete itEdges;
-
-					fnp1->setNodeValue(u, num / denum);
-				}
-				delete itNodesU;
-
-			} else if(this->is_isotropic && !this->is_anisotropic) {
-				/*
-				 * If using the anisotropic model
-				 *
-				 * Precomputing gradient norms
-				 * Norm q of a weighted gradient of the function f at node u
-				 * [ sum_{v~u} w_{uv}^{q/2} . |f(v) - f(u)|^q ]^{1/q}
-				 * We are computing it for q = 2, and at power p-2
-				 */
-				{
-					double epsilon_squared = this->epsilon * this->epsilon,
-					       gradient_power = (this->p - 2) / 2;
-
-					itNodesU = graph->getNodes();
-					while(itNodesU->hasNext()) {
-						u = itNodesU->next();
-
-						grad_u = 0;
-
-						itEdges = graph->getInOutEdges(u);
-						while(itEdges->hasNext()) {
-							e = itEdges->next();
-							v = graph->opposite(e, u);
-							grad_u += this->wl->getEdgeValue(e) * pow(fabs(fn->getNodeValue(u) - fn->getNodeValue(v)), 2);
-						}
-						delete itEdges;
-
-						// grad_u is the gradient^2
-
-						/*
-						 * Regularized to avoid divisions by 0
-						 * Computing it at power p-2
-						 */
-						grad->setNodeValue(u, pow(grad_u + epsilon_squared, gradient_power)); 
-					}
-					delete itNodesU;
-				}
-
-				itNodesU = graph->getNodes();
-				while(itNodesU->hasNext()) {
-					u = itNodesU->next();
-
-					lambda_u = this->wl->getNodeValue(u);
-					num = lambda_u * this->f0->getNodeValue(u);
-					denum = lambda_u;
-
-					itEdges = graph->getInOutEdges(u);
-					while(itEdges->hasNext()) {
-						e = itEdges->next();
-						v = graph->opposite(e, u);
-
-						grad_u = grad->getNodeValue(u);
-						grad_v = grad->getNodeValue(v);
-
-						b = this->wl->getEdgeValue(e) * (grad_u + grad_v);
-						num += b * fn->getNodeValue(v);
-						denum += b;
-					}
-					delete itEdges;
-
-					fnp1->setNodeValue(u, num / denum);
-				}
-				delete itNodesU;
-
-			} else {
-				/*
-				 * Isotropic & anisotropic model
-				 * p = q = 2
-				 * Some computations are simpliified
-				 */
-
-				itNodesU = graph->getNodes();
-				while(itNodesU->hasNext()) {
-					u = itNodesU->next();
-
-					lambda_u = this->wl->getNodeValue(u);
-					num = lambda_u * this->f0->getNodeValue(u);
-					denum = lambda_u;
-
-					itEdges = graph->getInOutEdges(u);
-					while(itEdges->hasNext()) {
-						e = itEdges->next();
-						v = graph->opposite(e, u);
-
-						fn_v = fn->getNodeValue(v);
-
-						b = this->wl->getEdgeValue(e);
-						num += b * fn_v;
-						denum += b;
-					}
-					delete itEdges;
-
-					fnp1->setNodeValue(u, num / denum);
-				}
-				delete itNodesU;
+			if((i + 1) % 10 == 0) {
+				pluginProgress->progress(i+1, iter_max);
+				std::cerr << "Iteration " << (i+1) << "/" << iter_max << std::endl;
 			}
 
-			tmp = fn;
-			fn = fnp1;
-			fnp1 = tmp;
-
-			if(pluginProgress) {
-				if(pluginProgress->state() != TLP_CONTINUE)
-					continueProcess = false;
-
-				if((i + 1) % 10 == 0) {
-					pluginProgress->progress(i+1, iter_max);
-					std::cerr << "Iteration " << (i+1) << "/" << iter_max << std::endl;
-				}
-
-				if((this->export_interval > 0) && ((i + 1) % this->export_interval) == 0) {
-					try {
-						exportGraph(i+1);
-					} catch (std::runtime_error &ex) {
-						std::cerr << "Export failed et iteration #" << i+1 << ": " << ex.what() << std::endl;
-					}
+			if((this->export_interval > 0) && ((i + 1) % this->export_interval) == 0) {
+				try {
+					exportGraph(i+1);
+				} catch (std::runtime_error &ex) {
+					std::cerr << "Export failed et iteration #" << i+1 << ": " << ex.what() << std::endl;
 				}
 			}
+		}
 
-			if(!continueProcess)
-				break;
-		} // End main loop
+		if(!continueProcess)
+			break;
+	} // End main loop
 
-		this->fn_result->copy(fn);
+	this->fn_result->copy(fn);
 
-		graph->delLocalProperty(fn_name);
-		graph->delLocalProperty(fnp1_name);
-		if(this->is_isotropic && !this->is_anisotropic)
-			graph->delLocalProperty(grad_name);
-	}
+	graph->delLocalProperty(fn_name);
+	graph->delLocalProperty(fnp1_name);
+	if(this->is_isotropic && !this->is_anisotropic)
+		graph->delLocalProperty(grad_name);
 
 	if(pluginProgress && iter_max > 0)
 		pluginProgress->progress(iter_max, iter_max);
