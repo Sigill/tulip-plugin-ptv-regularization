@@ -1,5 +1,5 @@
-#ifndef _CV_TA_H
-#define _CV_TA_H
+#ifndef REG_PTV_VECTOR_H
+#define REG_PTV_VECTOR_H
 
 #include <tulip/TulipPlugin.h>
 #include <utility>
