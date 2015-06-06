@@ -1,7 +1,7 @@
 #ifndef REG_PTV_VECTOR_H
 #define REG_PTV_VECTOR_H
 
-#include <tulip/TulipPlugin.h>
+#include <tulip/TulipPluginHeaders.h>
 #include <utility>
 
 class Reg_pTV_Vector:public tlp::Algorithm {
@@ -17,7 +17,8 @@ private:
 	std::string export_directory;
 
 public:
-	Reg_pTV_Vector(const tlp::AlgorithmContext& context);
+	PLUGININFORMATIONS("Regularization p-TV (Vector version)","Cyrille FAUCHEUX","2013/01/17","Perform a p-TV regularization (Vector version).","1.0","Graph")
+	Reg_pTV_Vector(tlp::PluginContext* context);
 	~Reg_pTV_Vector() {}
 	bool run();
 	bool check(std::string &);
@@ -25,5 +26,7 @@ public:
 private:
 	void exportGraph(const int i);
 };
+
+PLUGIN(Reg_pTV_Vector)
 
 #endif

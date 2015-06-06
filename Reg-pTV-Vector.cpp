@@ -9,8 +9,6 @@
 #include <QFileInfo>
 #include <QDir>
 
-ALGORITHMPLUGIN(Reg_pTV_Vector, "Regularisation p-TV (vector edition)", "Cyrille FAUCHEUX", "17-01-2012", "Alpha", "1.0");
-
 using namespace std;
 using namespace tlp;
 
@@ -26,6 +24,7 @@ std::string random_string(const size_t len);
 
 namespace {
 	const char * paramHelp[] = {
+		// 0
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "DoubleVectorProperty" ) \
 			HTML_HELP_DEF( "default", "f0" ) \
@@ -33,6 +32,7 @@ namespace {
 			"The property to regularize." \
 			HTML_HELP_CLOSE(),
 
+		// 1
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "DoubleVectorProperty" ) \
 			HTML_HELP_DEF( "default", "fn" ) \
@@ -40,6 +40,7 @@ namespace {
 			"The regularized property (result of the regularization)." \
 			HTML_HELP_CLOSE(),
 
+		// 2
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "double" ) \
 			HTML_HELP_DEF( "default", "p" ) \
@@ -47,6 +48,7 @@ namespace {
 			"Penalization coefficient (penalizes high variations). Choose p = q for anisotropic model." \
 			HTML_HELP_CLOSE(),
 
+		// 3
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "double" ) \
 			HTML_HELP_DEF( "default", "q" ) \
@@ -54,6 +56,7 @@ namespace {
 			"Norm power (choose 2 for isotropic model)." \
 			HTML_HELP_CLOSE(),
 
+		// 4
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "Unsigned int" ) \
 			HTML_HELP_DEF( "default", "1000" ) \
@@ -61,6 +64,7 @@ namespace {
 			"The number of iterations to perform." \
 			HTML_HELP_CLOSE(),
 
+		// 5
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "DoubleProperty" ) \
 			HTML_HELP_DEF( "default", "weight" ) \
@@ -68,6 +72,7 @@ namespace {
 			"The property holding the weight associated to each edge and node." \
 			HTML_HELP_CLOSE(),
 
+		// 6
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "Unsigned int" ) \
 			HTML_HELP_DEF( "default", "0" ) \
@@ -75,31 +80,33 @@ namespace {
 			"Export interval. (0 to disable intermediate export)" \
 			HTML_HELP_CLOSE(),
 
+		// 7
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "Directory pathname" ) \
 			HTML_HELP_BODY() \
 			"Export directory." \
 			HTML_HELP_CLOSE(),
 
+		// 8
 		HTML_HELP_OPEN() \
 			HTML_HELP_DEF( "type", "double" ) \
 			HTML_HELP_BODY() \
-			"Arbitrary small positive value used when computing gradients in order to avoid 0 values." \
+			"Arbitrary small positive value used when computing gradients in order to avoid divisions by zero." \
 			HTML_HELP_CLOSE(),
 	};
 }
 
 //======================================================
-Reg_pTV_Vector::Reg_pTV_Vector(const tlp::AlgorithmContext &context):Algorithm(context), wl(NULL), f0(NULL), fn_result(NULL) {
-	addParameter< DoubleVectorProperty >      ("f0",                    paramHelp[0]);
-	addParameter< DoubleVectorProperty >      ("fn",                    paramHelp[1]);
-	addParameter< double >                    ("p",                     paramHelp[2], "2");
-	addParameter< double >                    ("q",                     paramHelp[3], "2");
-	addParameter< unsigned int >              ("number of iterations",  paramHelp[4], "1000");
-	addParameter< DoubleProperty >            ("weight/lambda",         paramHelp[5]);
-	addParameter< double >                    ("epsilon",               paramHelp[8], "0.01");
-	addParameter< unsigned int >              ("export interval",       paramHelp[6], "0");
-	addParameter< string >                    ("dir::export directory", paramHelp[7], "", false);
+Reg_pTV_Vector::Reg_pTV_Vector(tlp::PluginContext* context):Algorithm(context), wl(NULL), f0(NULL), fn_result(NULL) {
+	addInParameter< DoubleVectorProperty >      ("f0",                    paramHelp[0], "viewMetric");
+	addInParameter< DoubleVectorProperty >      ("fn",                    paramHelp[1], "viewMetric");
+	addInParameter< double >                    ("p",                     paramHelp[2], "2");
+	addInParameter< double >                    ("q",                     paramHelp[3], "2");
+	addInParameter< unsigned int >              ("number of iterations",  paramHelp[4], "1000");
+	addInParameter< DoubleProperty >            ("weight/lambda",         paramHelp[5], "viewMetric");
+	addInParameter< double >                    ("epsilon",               paramHelp[8], "0.01");
+	addInParameter< unsigned int >              ("export interval",       paramHelp[6], "0");
+	addInParameter< string >                    ("dir::export directory", paramHelp[7], "", false);
 }
 
 #define CHECK_PROP_PROVIDED(PROP, STOR) \
@@ -228,12 +235,6 @@ bool Reg_pTV_Vector::run() {
 	fnp1 = graph->getLocalProperty< DoubleVectorProperty >(fnp1_name);
 
 	/*
-	 * Initializing the function to regularize
-	 */
-	fn->copy(this->f0);
-	fnp1->copy(this->f0); // Initializes vectors
-
-	/*
 	 * Find an unused property name for grad
 	 * Only if we are using the isotropic model
 	 */
@@ -245,6 +246,12 @@ bool Reg_pTV_Vector::run() {
 		grad = graph->getLocalProperty< DoubleVectorProperty >(grad_name);
 		grad->copy(this->f0);
 	}
+
+	/*
+	 * Initializing the function to regularize
+	 */
+	fn->copy(this->f0);
+	fnp1->copy(this->f0); // Initializes vectors
 
 	if(pluginProgress)
 		pluginProgress->setComment("Processing");
